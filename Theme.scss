@@ -1,0 +1,1145 @@
+// =============================================================================
+//  AURORA GLASS · YouTube Music custom theme
+// =============================================================================
+//  Built on the supplied "Default" SCSS. Every functional fix from that file is
+//  kept (progress-bar stretch, browse-response visibility, queue scrollbar
+//  trick, icon sizing, narrow-window player layout); only the look changed.
+//
+//  LEGEND
+//    [V] verified  – selector / variable appears in the supplied default file
+//    [A] assumed   – known YouTube Music / Polymer DOM convention that is NOT
+//                    in the default file. Check in DevTools if it has no effect.
+//    [D] design    – theme token or hook, no DOM dependency
+//
+//  BUILD    sass youtube-music-theme.scss youtube-music-theme.css
+//  TARGET   Dart Sass 1.50+ (no @use / @import, no module imports needed)
+//  TUNING   §1 switches (compile time) and --ytmx-* custom properties (§4, runtime)
+//
+//  GLASS POLICY  backdrop-filter is used only where content really scrolls
+//  underneath (top bar, player bar, menus, dialogs, tooltips, suggestions).
+//  Cards, chips and the sidebar get the frosted look from translucent fills,
+//  hairline borders and top-edge highlights instead – same look, far cheaper.
+// =============================================================================
+
+
+// -----------------------------------------------------------------------------
+// 1. SWITCHES
+// -----------------------------------------------------------------------------
+$enable-glass-blur: true !default;      // false → opaque fallbacks everywhere
+$enable-ambient: true !default;         // fixed aurora backdrop behind the app
+$enable-ambient-motion: true !default;  // slow drift of that backdrop
+
+
+// -----------------------------------------------------------------------------
+// 2. DESIGN TOKENS
+// -----------------------------------------------------------------------------
+
+// 2.1 Surfaces – deep ink with a slight violet cast, easy on the eyes
+$bg-0: #06050b;
+$bg-1: #0b0914;
+$bg-2: #12101f;
+$bg-3: #1b1832;
+
+// 2.2 Text (secondary ≈ 6.5:1, tertiary ≈ 4.6:1 on $bg-1)
+$text-primary: #f5f3ff;
+$text-secondary: rgba(#dcd8f7, 0.68);
+$text-tertiary: rgba(#dcd8f7, 0.58);
+
+// 2.3 Accents
+$accent-1: #9b8cff;         // periwinkle violet – primary
+$accent-1-bright: #c4baff;  // for icons / text on dark
+$accent-2: #ff7ab8;         // rose – secondary
+$accent-3: #5ee1ff;         // cyan – ambient light only
+
+// 2.4 Status
+$success: #5ee6a8;
+$warning: #ffc861;
+$danger: #ff6b81;
+
+// 2.5 White veils (hover / selected / glass fills)
+$layer-1: rgba(#fff, 0.04);
+$layer-2: rgba(#fff, 0.07);
+$layer-3: rgba(#fff, 0.11);
+$layer-4: rgba(#fff, 0.16);
+
+// 2.6 Borders & dividers
+$border-hairline: rgba(#fff, 0.07);
+$border-soft: rgba(#fff, 0.11);
+$border-strong: rgba(#fff, 0.18);
+
+// 2.7 Glass fills (tint = with blur, fb = opaque fallback)
+$glass-nav: rgba($bg-1, 0.62);
+$glass-nav-fb: rgba($bg-1, 0.97);
+$glass-player: rgba($bg-1, 0.7);
+$glass-player-fb: rgba($bg-1, 0.98);
+$glass-menu: rgba($bg-2, 0.8);
+$glass-menu-fb: rgba($bg-2, 0.985);
+$glass-field: rgba(#fff, 0.06);
+
+// 2.8 Gradients
+$grad-accent: linear-gradient(120deg, $accent-1 0%, $accent-2 100%);
+$grad-accent-soft: linear-gradient(120deg, rgba($accent-1, 0.24), rgba($accent-2, 0.14));
+$grad-sheen: linear-gradient(180deg, rgba(#fff, 0.07), rgba(#fff, 0) 45%);
+
+// 2.9 Elevation (use through interpolation when combined: #{$a}, #{$b})
+$edge-light: inset 0 1px 0 rgba(#fff, 0.07);
+$shadow-1: 0 1px 2px rgba(#03020a, 0.35), 0 4px 12px -4px rgba(#03020a, 0.45);
+$shadow-2: 0 2px 4px rgba(#03020a, 0.3), 0 14px 30px -12px rgba(#03020a, 0.6);
+$shadow-3: 0 4px 8px rgba(#03020a, 0.3), 0 28px 64px -18px rgba(#03020a, 0.75);
+
+// 2.10 Radius scale
+$radius-xs: 6px;
+$radius-sm: 8px;
+$radius-md: 12px;
+$radius-lg: 16px;
+$radius-pill: 999px;
+
+// 2.11 Spacing
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+
+// 2.12 Blur radii (exposed at runtime as --ytmx-blur-sm|md|lg)
+$blur-sm: 10px;
+$blur-md: 18px;
+$blur-lg: 28px;
+
+// 2.13 Motion
+$dur-fast: 160ms;
+$dur-base: 260ms;
+$dur-slow: 420ms;
+$dur-ambient: 80s;
+$ease-out: cubic-bezier(0.22, 1, 0.36, 1);   // default: quick start, soft landing
+$ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+$zoom-art: 1.06;
+$press-scale: 0.95;
+
+// 2.14 Typography (local fonts only – YTM's CSP makes remote @import unreliable)
+$font-ui: 'Inter Variable', 'Inter', 'SF Pro Text', 'Segoe UI Variable Text', 'Roboto', system-ui, sans-serif;
+
+// 2.15 Logo tint: YTM red rotated into the violet range
+$logo-hue: 250deg;
+
+// 2.16 Player sizes [V] – kept from the default file
+$playerBarBackground: $bg-1;
+$playerIconSize: 20px;
+$playerButtonSize: 42px;
+
+
+// -----------------------------------------------------------------------------
+// 3. FUNCTIONS & MIXINS
+// -----------------------------------------------------------------------------
+
+// Builds "prop dur ease, prop dur ease …" – never `transition: all`.
+@function transition-list($dur, $ease, $props) {
+  $out: '';
+  @each $p in $props {
+    @if $out != '' {
+      $out: $out + ', ';
+    }
+    $out: $out + '#{$p} #{$dur} #{$ease}';
+  }
+  @return $out;
+}
+
+@mixin motion($props...) {
+  transition: #{transition-list(var(--ytmx-dur-base), $ease-out, $props)};
+}
+
+@mixin motion-fast($props...) {
+  transition: #{transition-list(var(--ytmx-dur-fast), $ease-out, $props)};
+}
+
+@mixin motion-slow($props...) {
+  transition: #{transition-list(var(--ytmx-dur-slow), $ease-out, $props)};
+}
+
+// Frosted surface: opaque fallback first, translucent + blur when supported.
+// Declarations only – keep it at the END of a rule (before nested rules).
+@mixin glass($tint, $fallback, $blur: md, $saturate: 1.35, $important: false) {
+  @if $important {
+    background-color: $fallback !important;
+  } @else {
+    background-color: $fallback;
+  }
+
+  @if $enable-glass-blur {
+    @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+      @if $important {
+        background-color: $tint !important;
+      } @else {
+        background-color: $tint;
+      }
+      -webkit-backdrop-filter: blur(var(--ytmx-blur-#{$blur})) saturate($saturate);
+      backdrop-filter: blur(var(--ytmx-blur-#{$blur})) saturate($saturate);
+    }
+  }
+}
+
+// Gradient hairline border that keeps border-radius and layout (no pseudo-element).
+@mixin gradient-outline($fill: rgba($bg-3, 0.96), $grad: $grad-accent) {
+  border-color: transparent;
+  background: linear-gradient($fill, $fill) padding-box, $grad border-box;
+}
+
+@mixin focus-ring($color: $accent-1-bright) {
+  outline: 2px solid rgba($color, 0.9);
+  outline-offset: 2px;
+}
+
+
+// -----------------------------------------------------------------------------
+// 4. ROOT: runtime tokens, native-variable overrides, ambient backdrop
+// -----------------------------------------------------------------------------
+ytmusic-app {
+  // [D] runtime hooks. --ytmx-glow is the "album light" hook: it defaults to the
+  // accent, and a tiny script / plugin may set it from the cover art (CSS alone
+  // cannot read image pixels).
+  --ytmx-accent-1: #{$accent-1};
+  --ytmx-accent-2: #{$accent-2};
+  --ytmx-glow: #{rgba($accent-1, 0.42)};
+  --ytmx-glow-2: #{rgba($accent-2, 0.3)};
+  --ytmx-dur-fast: #{$dur-fast};
+  --ytmx-dur-base: #{$dur-base};
+  --ytmx-dur-slow: #{$dur-slow};
+  --ytmx-zoom: #{$zoom-art};
+  --ytmx-blur-sm: #{$blur-sm};
+  --ytmx-blur-md: #{$blur-md};
+  --ytmx-blur-lg: #{$blur-lg};
+
+  // [V] from the default file. NOTE: Dart Sass does not evaluate $variables
+  // inside custom properties – they need #{} (the default file printed the raw
+  // text `$playerBarBackground`, i.e. the rule was silently ignored).
+  --ytmusic-player-bar-background: #{$playerBarBackground};
+
+  // [A] native YTM / YouTube tokens (harmless if a name is unused)
+  --ytmusic-background: #{$bg-0};
+  --ytmusic-general-background-a: #{$bg-0};
+  --ytmusic-general-background-b: #{$bg-1};
+  --ytmusic-general-background-c: #{$bg-2};
+  --ytmusic-search-background: #{$glass-field};
+  --ytmusic-text-primary: #{$text-primary};
+  --ytmusic-text-secondary: #{$text-secondary};
+  --ytmusic-text-disabled: #{$text-tertiary};
+  --ytmusic-menu-item-hover-background-color: #{$layer-2};
+  --yt-spec-base-background: #{$bg-0};
+  --yt-spec-raised-background: #{$bg-2};
+  --yt-spec-menu-background: #{$bg-2};
+  --yt-spec-text-primary: #{$text-primary};
+  --yt-spec-text-secondary: #{$text-secondary};
+  --yt-spec-call-to-action: #{$accent-1-bright};
+
+  // [A] Polymer paper-* component tokens (form controls, tabs, spinner, tooltip)
+  --paper-checkbox-checked-color: #{$accent-1};
+  --paper-checkbox-checked-ink-color: #{$accent-1};
+  --paper-checkbox-unchecked-color: #{$text-tertiary};
+  --paper-toggle-button-checked-bar-color: #{$accent-1};
+  --paper-toggle-button-checked-button-color: #{$accent-1-bright};
+  --paper-toggle-button-checked-ink-color: #{$accent-1};
+  --paper-input-container-focus-color: #{$accent-1};
+  --paper-input-container-input-color: #{$text-primary};
+  --paper-tabs-selection-bar-color: #{$accent-1};
+  --paper-spinner-layer-1-color: #{$accent-1};
+  --paper-spinner-layer-2-color: #{$accent-2};
+  --paper-spinner-layer-3-color: #{$accent-1-bright};
+  --paper-spinner-layer-4-color: #{$accent-3};
+  --paper-tooltip-background: #{$glass-menu};
+  --paper-tooltip-text-color: #{$text-primary};
+  --paper-tooltip-opacity: 1;
+
+  isolation: isolate;  // lets the ::before backdrop sit above the app background
+  background-color: $bg-0;
+  color: $text-primary;
+  font-family: $font-ui;
+  -webkit-font-smoothing: antialiased;
+
+  // Aurora backdrop: three soft light pools over an ink gradient. Built from
+  // gradients only (no blur filter) and moved with transform → compositor-only.
+  @if $enable-ambient {
+    &::before {
+      content: '';
+      position: fixed;
+      inset: -20%;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        radial-gradient(42% 38% at 18% 12%, rgba($accent-1, 0.2), transparent 70%),
+        radial-gradient(36% 34% at 86% 18%, rgba($accent-2, 0.13), transparent 72%),
+        radial-gradient(48% 42% at 70% 100%, rgba($accent-3, 0.09), transparent 70%),
+        linear-gradient(180deg, $bg-1, $bg-0);
+
+      @if $enable-ambient-motion {
+        animation: ytmx-ambient-drift $dur-ambient $ease-in-out infinite alternate;
+        will-change: transform;
+      }
+    }
+  }
+}
+
+// [A] let the backdrop show through the layout shell
+ytmusic-app-layout,
+#content.ytmusic-app-layout {
+  background: transparent;
+}
+
+
+// -----------------------------------------------------------------------------
+// 5. KEYFRAMES
+// -----------------------------------------------------------------------------
+@keyframes ytmx-ambient-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  100% {
+    transform: translate3d(-3%, 2.5%, 0) scale(1.06);
+  }
+}
+
+@keyframes ytmx-pop-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes ytmx-rise-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 6. GLOBAL: canvas, selection, scrollbar, focus
+// -----------------------------------------------------------------------------
+html,
+body {
+  background-color: $bg-0;
+  color-scheme: dark;
+}
+
+::selection {
+  background: rgba($accent-1, 0.4);
+  color: #fff;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(#fff, 0.14);
+  background-clip: padding-box;
+  border: 3px solid transparent;  // makes the thumb look thin without a thin hit area
+  border-radius: $radius-pill;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba($accent-1-bright, 0.45);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: rgba($accent-1-bright, 0.62);
+}
+
+// Keyboard focus stays visible everywhere (paper-* elements use [focused])
+ytmusic-app {
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  [tabindex]:focus-visible,
+  tp-yt-paper-icon-button[focused],
+  tp-yt-paper-item[focused] {
+    @include focus-ring;
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 7. HEADER
+// -----------------------------------------------------------------------------
+
+// [A] top bar surface – content scrolls underneath, so this one gets real blur
+#nav-bar-background.ytmusic-app-layout {
+  border-bottom: 1px solid $border-hairline;
+  box-shadow: 0 10px 34px -22px rgba(#03020a, 0.9);
+  @include glass($glass-nav, $glass-nav-fb, lg);
+}
+
+// [V] logo tint, now with a soft glow on hover
+.logo.ytmusic-nav-bar {
+  filter: hue-rotate($logo-hue) drop-shadow(0 0 0 rgba($accent-1, 0));
+  @include motion-fast(filter);
+
+  &:hover {
+    filter: hue-rotate($logo-hue) drop-shadow(0 0 10px rgba($accent-1, 0.55));
+  }
+}
+
+// [A] search field: frosted pill, accent ring + glow on focus
+ytmusic-search-box {
+  #input-box.ytmusic-search-box {
+    border: 1px solid $border-soft;
+    border-radius: $radius-pill;
+    background-color: $glass-field;
+    box-shadow: $edge-light;
+    @include motion(background-color, border-color, box-shadow);
+  }
+
+  &:focus-within #input-box.ytmusic-search-box {
+    background-color: rgba($bg-2, 0.9);
+    border-color: rgba($accent-1, 0.7);
+    box-shadow: 0 0 0 4px rgba($accent-1, 0.14), 0 10px 32px -12px var(--ytmx-glow), $edge-light;
+  }
+
+  input::placeholder {
+    color: $text-tertiary;
+  }
+}
+
+// [A] suggestions dropdown (content scrolls/changes behind it → blur is fine)
+ytmusic-search-suggestions-section.ytmusic-search-box {
+  border: 1px solid $border-soft;
+  border-radius: $radius-lg;
+  box-shadow: #{$shadow-2}, #{$edge-light};
+  overflow: hidden;
+  @include glass($glass-menu, $glass-menu-fb, md);
+}
+
+ytmusic-search-suggestion {
+  @include motion-fast(background-color);
+
+  &:hover {
+    background-color: $layer-2;
+  }
+}
+
+// [A] avatar / settings area. Button size [V] kept from the default file.
+tp-yt-paper-icon-button.ytmusic-settings-button {
+  width: 40px;
+  height: 40px;
+}
+
+ytmusic-settings-button yt-img-shadow {
+  box-shadow: 0 0 0 1px $border-strong;
+  @include motion(box-shadow);
+
+  &:hover {
+    box-shadow: 0 0 0 2px rgba($accent-1, 0.6), 0 0 18px -4px var(--ytmx-glow);
+  }
+}
+
+// [A] pivot tabs shown when the sidebar is collapsed
+ytmusic-pivot-bar-item-renderer {
+  color: $text-secondary;
+  @include motion-fast(color);
+
+  &:hover,
+  &[selected] {
+    color: $text-primary;
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 8. SIDEBAR  [A] – frosted look via fills/borders (nothing scrolls under it)
+// -----------------------------------------------------------------------------
+tp-yt-app-drawer#guide #contentContainer {
+  background: linear-gradient(180deg, rgba($bg-2, 0.55), rgba($bg-1, 0.4));
+  border-right: 1px solid $border-hairline;
+}
+
+#mini-guide-background.ytmusic-app-layout {
+  background: linear-gradient(180deg, rgba($bg-2, 0.55), rgba($bg-1, 0.4));
+  border-right: 1px solid $border-hairline;
+}
+
+tp-yt-app-drawer#guide ytmusic-guide-entry-renderer tp-yt-paper-item {
+  margin: 2px $space-2;
+}
+
+ytmusic-guide-entry-renderer {
+  tp-yt-paper-item {
+    position: relative;
+    border-radius: $radius-md;
+    color: $text-secondary;
+    @include motion-fast(background-color, color, translate);
+
+    // active marker
+    &::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 24%;
+      bottom: 24%;
+      width: 3px;
+      border-radius: $radius-pill;
+      background: $grad-accent;
+      opacity: 0;
+      scale: 1 0.4;
+      @include motion(opacity, scale);
+    }
+  }
+
+  &:hover tp-yt-paper-item {
+    background-color: $layer-2;
+    color: $text-primary;
+    translate: 2px 0;
+  }
+
+  &[active] tp-yt-paper-item,
+  tp-yt-paper-item.iron-selected {
+    background-color: transparent;
+    background-image: $grad-accent-soft;
+    color: $text-primary;
+    box-shadow: inset 0 0 0 1px rgba($accent-1, 0.26), 0 8px 22px -14px var(--ytmx-glow);
+    translate: none;
+
+    &::after {
+      opacity: 1;
+      scale: 1;
+    }
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 9. HOME / BROWSE: sections, headings, chips, carousel arrows
+// -----------------------------------------------------------------------------
+
+// [V] default file fix – keep browse content visible
+ytmusic-browse-response {
+  &:not([hidden]) {
+    display: block !important;
+    visibility: visible !important;
+  }
+}
+
+// [A] shelves rise in one after another (first six); replays when content re-renders
+ytmusic-section-list-renderer :is(ytmusic-carousel-shelf-renderer, ytmusic-shelf-renderer) {
+  animation: ytmx-rise-in var(--ytmx-dur-slow) $ease-out backwards;
+
+  @for $i from 1 through 6 {
+    &:nth-child(#{$i}) {
+      animation-delay: #{($i - 1) * 55}ms;
+    }
+  }
+}
+
+// [A] section headings
+ytmusic-carousel-shelf-basic-header-renderer .title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: $text-primary;
+}
+
+ytmusic-carousel-shelf-basic-header-renderer .strapline {
+  color: $text-tertiary;
+  letter-spacing: 0.04em;
+}
+
+// [A] category chips: frosted pill → gradient-outlined when selected
+ytmusic-chip-cloud-chip-renderer {
+  a {
+    border: 1px solid $border-soft;
+    border-radius: $radius-pill;
+    background-color: $glass-field;
+    color: $text-secondary;
+    box-shadow: $edge-light;
+    @include motion-fast(background-color, border-color, color, box-shadow);
+
+    &:hover {
+      background-color: $layer-3;
+      border-color: $border-strong;
+      color: $text-primary;
+    }
+  }
+
+  &[is-selected] a {
+    @include gradient-outline;
+    color: #fff;
+    box-shadow: 0 8px 22px -10px var(--ytmx-glow), $edge-light;
+  }
+}
+
+// [A] carousel previous / next buttons
+ytmusic-carousel-shelf-renderer :is(.next-items-button, .previous-items-button) .yt-spec-button-shape-next {
+  border: 1px solid $border-soft;
+  background-color: rgba($bg-2, 0.82);
+  box-shadow: #{$shadow-1}, #{$edge-light};
+  @include motion-fast(background-color, border-color);
+
+  &:hover {
+    background-color: rgba($bg-3, 0.94);
+    border-color: $border-strong;
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 10. CARDS (albums, playlists, artists)
+// -----------------------------------------------------------------------------
+
+// [V] shape group from the default file (+ generic card entry so grids on
+// Explore/Library match carousels). translate3d keeps radius clipping on the GPU.
+.ytmusic-play-button-renderer,
+.thumbnail-overlay,
+ytmusic-two-row-item-renderer {
+  border-radius: $radius-md;
+  overflow: hidden;
+  transform: translate3d(0, 0, 1px);
+}
+
+.thumbnail.ytmusic-player-queue-item {  // [V] smaller thumb → smaller radius
+  border-radius: $radius-sm;
+  overflow: hidden;
+  transform: translate3d(0, 0, 1px);
+}
+
+// [A] cover art: clip the zoom, keep circular artist covers circular
+ytmusic-two-row-item-renderer ytmusic-thumbnail-renderer {
+  overflow: hidden;
+  border-radius: $radius-md;
+
+  &[thumbnail-crop='MUSIC_THUMBNAIL_CROP_CIRCLE'] {
+    border-radius: 50%;
+  }
+
+  img {
+    @include motion-slow(scale, opacity);
+  }
+}
+
+// [A] default overlay shape was square → circle for artist cards
+ytmusic-two-row-item-renderer:has(ytmusic-thumbnail-renderer[thumbnail-crop='MUSIC_THUMBNAIL_CROP_CIRCLE']) .thumbnail-overlay {
+  border-radius: 50%;
+}
+
+// [V class] hover overlay: gradient rises from the bottom + faint accent wash
+.thumbnail-overlay {
+  background: linear-gradient(to top, rgba($bg-0, 0.78), rgba($bg-0, 0) 72%) bottom / 100% 0% no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(#fff, 0);
+  @include motion(background-size, background-color, box-shadow);
+}
+
+ytmusic-two-row-item-renderer:hover .thumbnail-overlay,
+ytmusic-responsive-list-item-renderer:hover .thumbnail-overlay {
+  background-size: 100% 100%;
+  background-color: rgba($accent-1, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(#fff, 0.14);
+}
+
+@media (hover: hover) {
+  ytmusic-two-row-item-renderer:hover ytmusic-thumbnail-renderer img {
+    scale: var(--ytmx-zoom);
+  }
+}
+
+// [A] play button: glow follows the rendered shape, press feedback via `scale`
+// (individual property → never clobbers YTM's own transforms)
+ytmusic-play-button-renderer {
+  filter: drop-shadow(0 6px 14px rgba(#03020a, 0.5));
+  @include motion-fast(scale, filter);
+
+  &:hover {
+    scale: 1.08;
+  }
+
+  &:active {
+    scale: $press-scale;
+  }
+}
+
+ytmusic-two-row-item-renderer:hover ytmusic-play-button-renderer {
+  filter: drop-shadow(0 6px 16px rgba($accent-1, 0.55));
+}
+
+// [A] card text
+ytmusic-two-row-item-renderer {
+  .title {
+    font-weight: 600;
+    color: $text-primary;
+  }
+
+  .subtitle {
+    color: $text-secondary;
+  }
+}
+
+// [A] album / playlist hero artwork
+ytmusic-responsive-header-renderer ytmusic-thumbnail-renderer,
+ytmusic-detail-header-renderer ytmusic-thumbnail-renderer {
+  border-radius: $radius-lg;
+  overflow: hidden;
+  box-shadow: #{$shadow-3}, 0 30px 80px -34px var(--ytmx-glow);
+}
+
+
+// -----------------------------------------------------------------------------
+// 11. SONG LISTS  [A]
+// -----------------------------------------------------------------------------
+ytmusic-responsive-list-item-renderer {
+  border-radius: $radius-sm;
+  @include motion-fast(background-color, box-shadow);
+
+  &:hover {
+    background-color: $layer-2;
+    box-shadow: $edge-light;
+  }
+
+  // currently selected / playing row (state attribute names are an assumption)
+  &[selected],
+  &[play-button-state='playing'],
+  &[play-button-state='paused'] {
+    background-color: transparent;
+    background-image: $grad-accent-soft;
+    box-shadow: inset 0 0 0 1px rgba($accent-1, 0.22);
+  }
+
+  .secondary-flex-columns {
+    color: $text-secondary;
+  }
+}
+
+ytmusic-responsive-list-item-renderer .thumbnail.ytmusic-responsive-list-item-renderer {
+  border-radius: $radius-sm;
+  overflow: hidden;
+}
+
+
+// -----------------------------------------------------------------------------
+// 12. PLAYER BAR
+// -----------------------------------------------------------------------------
+
+// [V] default file: transparent host; the surface lives in the background element
+ytmusic-player-bar.ytmusic-app {
+  background: transparent;
+}
+
+// [V] frosted player surface – the highest, most readable glass in the UI
+#player-bar-background.ytmusic-app-layout {
+  border-top: 1px solid $border-soft;
+  box-shadow: 0 -18px 48px -24px rgba(#03020a, 0.9), $edge-light;
+  background-image:
+    radial-gradient(60% 140% at 12% 0%, rgba($accent-1, 0.12), transparent 70%),
+    radial-gradient(50% 140% at 92% 0%, rgba($accent-2, 0.08), transparent 70%),
+    $grad-sheen;
+  @include glass($glass-player, $glass-player-fb, lg, 1.4, true);
+}
+
+// [V] progress bar: full-width stretch from the default file is untouched
+#progress-bar.ytmusic-player-bar {
+  --paper-slider-active-color: #{$accent-1};
+  --paper-slider-knob-color: #fff;
+  --paper-slider-secondary-color: #{rgba(#fff, 0.28)};
+  --paper-slider-container-color: #{rgba(#fff, 0.14)};
+  padding-right: 0 !important;
+  left: 0 !important;
+  right: -10px !important;
+  width: unset !important;
+  padding-left: 0 !important;
+
+  #sliderContainer {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  // [A] gradient fill + glowing knob (knob keeps YTM's own transform transitions)
+  #primaryProgress {
+    background-image: $grad-accent;
+  }
+
+  .slider-knob-inner {
+    box-shadow: 0 0 0 4px rgba($accent-1, 0.22), 0 0 14px rgba($accent-1, 0.65);
+  }
+}
+
+// [A] volume sliders share the same language
+ytmusic-player-bar :is(#volume-slider, #expand-volume-slider) {
+  --paper-slider-active-color: #{$accent-1};
+  --paper-slider-knob-color: #fff;
+  --paper-slider-container-color: #{$layer-3};
+
+  #primaryProgress {
+    background-image: $grad-accent;
+  }
+
+  .slider-knob-inner {
+    box-shadow: 0 0 10px rgba($accent-1, 0.55);
+  }
+}
+
+// [V] cover thumbnail (radius + translate3d from the default file)
+.image.ytmusic-player-bar {
+  border-radius: $radius-sm;
+  transform: translate3d(0, 0, 1px);
+  box-shadow: 0 6px 18px -6px var(--ytmx-glow), 0 0 0 1px $border-soft;
+  @include motion(box-shadow, scale);
+
+  &:hover {
+    scale: 1.04;
+    box-shadow: 0 10px 26px -6px var(--ytmx-glow), 0 0 0 1px $border-strong;
+  }
+}
+
+// [A] track text
+ytmusic-player-bar {
+  .title.ytmusic-player-bar {
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: $text-primary;
+  }
+
+  .byline.ytmusic-player-bar {
+    color: $text-secondary;
+  }
+
+  .time-info.ytmusic-player-bar {
+    color: $text-tertiary;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+// [V] play/pause: sizes + icon resets from the default file, now a glass disc
+// with a gradient halo. Ring is an inset shadow so the 42px box never changes.
+ytmusic-player-bar .play-pause-button.ytmusic-player-bar {
+  height: $playerButtonSize !important;
+  width: $playerButtonSize !important;
+  border-radius: 50%;
+  background-image: $grad-accent-soft;
+  background-color: transparent;
+  box-shadow: inset 0 0 0 1px rgba(#fff, 0.18), 0 8px 22px -10px var(--ytmx-glow);
+  @include motion-fast(background-color, box-shadow, scale);
+
+  &:hover {
+    scale: 1.07;
+    background-color: rgba(#fff, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(#fff, 0.3), 0 10px 28px -8px var(--ytmx-glow), 0 0 0 5px rgba($accent-1, 0.1);
+  }
+
+  &:active {
+    scale: $press-scale;
+  }
+
+  .yt-icon {
+    width: $playerIconSize !important;
+    height: $playerIconSize !important;
+    transform: none !important;
+    translate: none !important;
+  }
+}
+
+// [V] secondary control sizing (interpolation fixes the unevaluated math the
+// default file would have printed inside the custom properties)
+#right-controls,
+.middle-controls-buttons {
+  --yt-icon-button-icon-height: #{$playerIconSize - 4px};
+  --yt-icon-button-icon-width: #{$playerIconSize - 4px};
+
+  .ytIconWrapperHost {
+    padding: 2px;
+    height: var(--yt-icon-button-icon-height) !important;
+    width: var(--yt-icon-button-icon-width) !important;
+  }
+
+  // [A] quiet by default, lit on hover, pressed on click
+  :is(tp-yt-paper-icon-button, yt-icon-button) {
+    opacity: 0.82;
+    @include motion-fast(opacity, scale);
+
+    &:hover {
+      opacity: 1;
+      scale: 1.1;
+    }
+
+    &:active {
+      scale: 0.92;
+    }
+  }
+}
+
+// [V] global icon sizing from the default file
+button.yt-icon-button > yt-icon {
+  height: $playerIconSize - 4px !important;
+  width: $playerIconSize - 4px !important;
+
+  svg {
+    stroke-width: 1px !important;
+  }
+}
+
+// [V] loading ring around the play button
+.spinner-container.ytmusic-player-bar {
+  width: $playerButtonSize + 8px !important;
+  height: $playerButtonSize + 8px !important;
+  margin: 0 2px !important;
+  transform: none !important;
+  translate: none !important;
+}
+
+
+// -----------------------------------------------------------------------------
+// 13. PLAYER PAGE & QUEUE
+// -----------------------------------------------------------------------------
+
+// [V] page surface: ambient light stays visible through a 94–98% ink veil
+ytmusic-player-page.ytmusic-app {
+  background:
+    radial-gradient(60% 50% at 18% 0%, rgba($accent-1, 0.14), transparent 70%),
+    radial-gradient(50% 45% at 90% 100%, rgba($accent-2, 0.09), transparent 70%),
+    linear-gradient(180deg, rgba($bg-0, 0.94), rgba($bg-0, 0.98));
+}
+
+.content.ytmusic-player-page {
+  padding: 0;
+  visibility: visible;
+  background: transparent;
+
+  // [V] default file: square album panel in narrow windows
+  @media screen and (max-width: 968px) {
+    #main-panel {
+      padding: 0 300px !important;
+      height: calc(6 / 16 * 100vw);
+    }
+  }
+}
+
+// [V] player art / media controls radius from the default file
+#song-image.ytmusic-player,
+.song-media-controls.ytmusic-player,
+ytmusic-player.ytmusic-player-page {
+  border-radius: $radius-md;
+  overflow: hidden;
+  transform: translate3d(0, 0, 1px);
+}
+
+ytmusic-player.ytmusic-player-page {
+  box-shadow: #{$shadow-3}, 0 40px 90px -40px var(--ytmx-glow);
+}
+
+// [V] scrollbar-hiding trick from the default file
+ytmusic-tab-renderer.ytmusic-player-page {
+  padding-right: 12px;
+  margin-right: -10px;
+}
+
+// [A] tabs (Up next / Lyrics / Related)
+tp-yt-paper-tab {
+  color: $text-secondary;
+  @include motion-fast(color);
+
+  &:hover,
+  &.iron-selected {
+    color: $text-primary;
+  }
+}
+
+// [V] queue
+ytmusic-player-queue {
+  padding: 10px 0;
+}
+
+ytmusic-player-queue-item {
+  --ytmusic-player-queue-item-thumbnail-size: 42px !important;
+  --ytmusic-list-item-height: 58px;
+  border-radius: $radius-sm;
+  transform: translate3d(0, 0, 1px);
+  border: 0;
+  opacity: 0.825;
+  @include motion-fast(background-color, opacity, translate);
+
+  &:not(:last-child) {
+    margin-bottom: $space-2;
+  }
+
+  &:hover:not([selected]) {
+    background-color: $layer-2;
+    opacity: 1;
+    translate: 2px 0;
+  }
+
+  // now playing: accent marker + soft gradient wash
+  &[selected] {
+    opacity: 1;
+    background:
+      linear-gradient($accent-1, $accent-2) left center / 3px 56% no-repeat,
+      $grad-accent-soft;
+    box-shadow: inset 0 0 0 1px rgba($accent-1, 0.22);
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 14. MENUS, DIALOGS, TOOLTIPS, BACKDROP
+// -----------------------------------------------------------------------------
+
+// [V] selectors + !important background from the default file; look upgraded to
+// layered glass (border, edge light, three-layer shadow)
+tp-yt-paper-dialog,
+tp-yt-paper-listbox.ytmusic-menu-popup-renderer {
+  border: 1px solid $border-soft;
+  border-radius: $radius-lg;
+  box-shadow: #{$shadow-3}, #{$edge-light};
+  @include glass($glass-menu, $glass-menu-fb, md, 1.35, true);
+}
+
+// [A] pop-in only on the inner list – the dropdown wrapper keeps YTM's own animation
+tp-yt-paper-listbox.ytmusic-menu-popup-renderer {
+  padding: $space-2 6px;
+  animation: ytmx-pop-in var(--ytmx-dur-base) $ease-out both;
+}
+
+// [A] menu rows
+:is(ytmusic-menu-navigation-item-renderer, ytmusic-menu-service-item-renderer, ytmusic-toggle-menu-service-item-renderer) {
+  tp-yt-paper-item {
+    border-radius: $radius-sm;
+    color: $text-secondary;
+    @include motion-fast(background-color, color);
+  }
+
+  &:hover tp-yt-paper-item {
+    background-color: $layer-2;
+    color: $text-primary;
+  }
+}
+
+// [A] tooltip body (colors come from the --paper-tooltip-* tokens in §4)
+tp-yt-paper-tooltip #tooltip {
+  border: 1px solid $border-soft;
+  border-radius: $radius-sm;
+  box-shadow: #{$shadow-2}, #{$edge-light};
+  font-size: 12px;
+  @include glass($glass-menu, $glass-menu-fb, sm);
+}
+
+// [A] modal scrim (blur exists only while a modal is open)
+tp-yt-iron-overlay-backdrop {
+  --iron-overlay-backdrop-background-color: #{$bg-0};
+  --iron-overlay-backdrop-opacity: 0.6;
+
+  @if $enable-glass-blur {
+    @supports (backdrop-filter: blur(1px)) {
+      backdrop-filter: blur(var(--ytmx-blur-sm));
+    }
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 15. BUTTONS, ICONS & FORM CONTROLS  [A]
+// -----------------------------------------------------------------------------
+.yt-spec-button-shape-next {
+  @include motion-fast(background-color, color, box-shadow, scale);
+
+  &:active {
+    scale: 0.97;
+  }
+}
+
+// primary (filled) buttons like Play → accent gradient
+.yt-spec-button-shape-next--filled.yt-spec-button-shape-next--mono {
+  background: $grad-accent;
+  box-shadow: 0 8px 22px -10px var(--ytmx-glow);
+
+  &:hover {
+    box-shadow: 0 10px 28px -8px var(--ytmx-glow);
+  }
+}
+
+// secondary buttons → glass
+.yt-spec-button-shape-next--tonal.yt-spec-button-shape-next--mono {
+  background-color: $glass-field;
+  box-shadow: inset 0 0 0 1px $border-soft;
+
+  &:hover {
+    background-color: $layer-3;
+  }
+}
+
+.yt-spec-button-shape-next--outline {
+  border-color: $border-soft;
+
+  &:hover {
+    border-color: $border-strong;
+  }
+}
+
+// Native checkbox / toggle / input / slider colors come from the paper-* tokens
+// in §4; nothing else is overridden so their behavior stays untouched.
+
+
+// -----------------------------------------------------------------------------
+// 16. RESPONSIVE
+// -----------------------------------------------------------------------------
+// Narrow player layout: see the max-width: 968px rule in §13 [V].
+
+@media (max-width: 1100px) {
+  // smaller blur radius = cheaper compositing on small / low-power windows
+  ytmusic-app {
+    --ytmx-blur-sm: 8px;
+    --ytmx-blur-md: 12px;
+    --ytmx-blur-lg: 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ytmusic-search-box #input-box.ytmusic-search-box {
+    border-radius: $radius-lg;
+  }
+}
+
+// no hover on touch screens → no sticky zoom
+@media (hover: none) {
+  ytmusic-app {
+    --ytmx-zoom: 1;
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// 17. REDUCED MOTION
+// -----------------------------------------------------------------------------
+// Durations are custom properties, so one override quiets every theme transition
+// without touching YTM's own animations (many rely on transitionend).
+@media (prefers-reduced-motion: reduce) {
+  ytmusic-app {
+    --ytmx-dur-fast: 1ms;
+    --ytmx-dur-base: 1ms;
+    --ytmx-dur-slow: 1ms;
+    --ytmx-zoom: 1;
+
+    &::before {
+      animation: none;
+    }
+  }
+
+  ytmusic-section-list-renderer :is(ytmusic-carousel-shelf-renderer, ytmusic-shelf-renderer),
+  tp-yt-paper-listbox.ytmusic-menu-popup-renderer {
+    animation: none;
+  }
+}
